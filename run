@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BUILD_DIR="$ROOT_DIR/.build"
+mkdir -p "$BUILD_DIR"
+
+trap 'rm -rf "$BUILD_DIR"/*' EXIT
+
+run_lean() {
+    local src="$1"
+    printf "\033[1;36m::\033[0m %s\n" "$src"
+    local output
+    if output="$(lean "$src" 2>&1)"; then
+        if [ -n "$output" ]; then
+            printf "%s\n" "$output"
+        fi
+        echo "ok"
+    else
+        printf "%s\n" "$output" >&2
+        return 1
+    fi
+}
+
+run_agda() {
+    local src="$1"
+    printf "\033[1;32m::\033[0m %s\n" "$src"
+    if ! command -v agda >/dev/null 2>&1; then
+        echo "error: agda is not installed" >&2
+        return 1
+    fi
+    local output
+    if output="$(agda "$src" 2>&1)"; then
+        echo "ok"
+    else
+        printf "%s\n" "$output" >&2
+        return 1
+    fi
+}
+
+dispatch() {
+    case "$1" in
+        *.lean)             run_lean "$1" ;;
+        *.agda|*.lagda.md)  run_agda "$1" ;;
+        *)                  echo "error: unsupported file type: $1" >&2; return 1 ;;
+    esac
+}
+
+if [ $# -eq 0 ]; then
+    printf "usage: %s [all | <file> | <query> [lean|agda]]\n" "$0"
+    exit 1
+fi
+
+target="$1"
+filter="${2:-}"
+
+if [ "$target" = "all" ]; then
+    lake build
+    exit 0
+fi
+
+if [ -f "$target" ]; then
+    dispatch "$target"
+    exit 0
+fi
+
+matched=0
+while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    case "$filter" in
+        lean) [[ "$f" != *.lean ]] && continue ;;
+        agda) [[ "$f" != *.agda && "$f" != *.lagda.md ]] && continue ;;
+    esac
+    dispatch "$f"
+    matched=$((matched + 1))
+done < <(find base plfa -type f \( -name "*.lean" -o -name "*.agda" -o -name "*.lagda.md" \) | grep -E "$target" | sort)
+
+if [ "$matched" -eq 0 ]; then
+    echo "error: no matches found for '$target'" >&2
+    exit 1
+fi
