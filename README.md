@@ -1,3 +1,0 @@
-<samp>
-
--  lean.prover
